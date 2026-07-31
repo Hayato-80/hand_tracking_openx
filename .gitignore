@@ -1,1 +1,3 @@
-./hand_tracking_openx/__pycache__/*
+__pycache__/
+*.pyc
+*.egg-info/
