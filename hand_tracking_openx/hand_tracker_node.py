@@ -60,7 +60,7 @@ class HandTrackerNode(Node):
         )
 
         model_path = os.path.join(
-            get_package_share_directory('hand_tracking'), 'hand_landmarker.task'
+            get_package_share_directory('hand_tracking_openx'), 'hand_landmarker.task'
         )
         if not os.path.exists(model_path):
             self.get_logger().error(f"Model {model_path} not found! Please download it.")
