@@ -76,7 +76,7 @@ class HandTrackerNode(Node):
         self.get_logger().info(f"Hand tracker initialized. Subscribed to {topic_name}")
         
         # Send to initial pose (last motor pitched UP ~30 degrees = -0.524 rad)
-        self.initial_pose = [0.0, -1.0, 1.0, -0.524]
+        self.initial_pose = [0.0, -1.0, 1.0, -0.7]
         self.initial_pose_time = 0.0
         
         # Timer for sending initial pose (wait a bit for subscribers to connect)
@@ -84,9 +84,17 @@ class HandTrackerNode(Node):
         
         # Target EMA
         self.target_joints_ema = np.array(self.initial_pose)
+        
+        # Tracking States
+        self.was_open = False
+        self.locked_target_size = None
 
     def send_initial_pose(self):
         if self.initial_pose_time > 0:
+            return
+            
+        if self.arm_publisher.get_subscription_count() == 0:
+            self.get_logger().info("Waiting for arm_controller to be ready...")
             return
             
         self.get_logger().info("Sending arm to initial pose [0.0, -1.0, 1.0, 0.0]...")
@@ -121,6 +129,7 @@ class HandTrackerNode(Node):
         if detection_result.hand_landmarks:
             for hand_landmarks in detection_result.hand_landmarks:
                 h, w, _ = cv_image.shape
+                
                 for lm in hand_landmarks:
                     cv2.circle(cv_image, (int(lm.x * w), int(lm.y * h)), 4, (0, 255, 0), -1)
                 
@@ -173,36 +182,74 @@ class HandTrackerNode(Node):
         
         is_open = dist > 0.05
         
+        # Latch (freeze) the hand size when transitioning to the Paper pose
+        if is_open and not self.was_open:
+            x_vals = [lm.x for lm in hand_landmarks]
+            y_vals = [lm.y for lm in hand_landmarks]
+            self.locked_target_size = max(max(x_vals) - min(x_vals), max(y_vals) - min(y_vals))
+            self.get_logger().info(f"Depth tracking locked at hand size: {self.locked_target_size:.3f}")
+            
+        # Reset the frozen size when the hand closes
+        if not is_open:
+            if self.locked_target_size is not None:
+                self.get_logger().info("Hand closed. Depth tracking reset.")
+            self.locked_target_size = None
+            
+        self.was_open = is_open
+        
         # When hand is closed (rock), do nothing (stop)
-        if is_open:
+        if is_open and self.locked_target_size is not None:
             # IMAGE-BASED VISUAL SERVOING (IBVS)
-            # The goal is to move the robot so the hand aligns with the target (center of image)
             target_x = 0.5
             target_y = 0.5
             
             error_x = target_x - x
             error_y = target_y - y
             
-            # Deadzone to stop micro-jitter when hand is near the center
+            # Depth Tracking using Hand Bounding Box Proxy
+            x_vals = [lm.x for lm in hand_landmarks]
+            y_vals = [lm.y for lm in hand_landmarks]
+            hand_size = max(max(x_vals) - min(x_vals), max(y_vals) - min(y_vals))
+            
+            # Use the dynamically frozen size instead of a hardcoded distance
+            error_z = self.locked_target_size - hand_size
+            error_z = np.clip(error_z, -0.15, 0.15)
+            
+            # Deadzone to stop micro-jitter when hand is near the target
             if abs(error_x) < 0.05: error_x = 0.0
             if abs(error_y) < 0.05: error_y = 0.0
+            if abs(error_z) < 0.03: error_z = 0.0
             
-            # Proportional velocity gains (slightly increased for faster tracking)
+            # Proportional velocity gains
             k_yaw = 0.8
             k_pitch = -0.8
+            k_depth = -2.0 # Negative because decreasing Joint 3 extends the arm forward
             
             q_dot = np.zeros(4)
             q_dot[0] = error_x * k_yaw
+            
+            # Base velocity for depth (Joint 3)
+            q_dot[2] = error_z * k_depth
+            
+            # Base velocity for pitch (Joint 2)
             q_dot[1] = error_y * k_pitch
+            # Altitude compensation: bending the elbow (Joint 3) drops altitude. 
+            # We lift the shoulder (Joint 2) to compensate and keep the arm perfectly level!
+            q_dot[1] += -0.64 * q_dot[2]
+            
+            # Compensate wrist (Joint 4) to maintain level pitch orientation
+            q_dot[3] = -(q_dot[1] + q_dot[2])
             
             # Update EMA target by integrating the velocity
-            # This ensures smooth, continuous movement towards the hand without jumping
             self.target_joints_ema = self.target_joints_ema + q_dot * self.command_interval
             
             # Joint limits (approximate OM-X limits in radians)
             limits_min = np.array([-3.14, -1.5, -1.5, -1.7])
             limits_max = np.array([3.14, 1.5, 1.4, 1.97])
-            target_joints = np.clip(self.target_joints_ema, limits_min, limits_max)
+            
+            # Clip the internal EMA state to prevent integral windup!
+            self.target_joints_ema = np.clip(self.target_joints_ema, limits_min, limits_max)
+            target_joints = self.target_joints_ema
 
             traj = JointTrajectory()
             traj.header.stamp = self.get_clock().now().to_msg()

@@ -22,16 +22,16 @@ Pythonパッケージは仮想環境（`venv`）内にインストールする�
 
 ## インストール手順
 
-### 1. Python仮想環境（venv）の作成
-colconのビルドプロセスと競合しないよう、`ros2_ws`内に`venv`を作成します。
+### 1. Python仮想環境の作成
+ROS 2ワークスペース内に仮想環境を作成します。
 
 ```bash
 cd ~/ros2_ws
 python3 -m venv --prompt ros2_ws .venv
 ```
 
-### 2. Python依存関係のインストール
-作成した仮想環境を有効化し、MediaPipeとOpenCVをインストールします。
+### 2. 依存パッケージのインストール
+仮想環境を有効化し、必要なパッケージをインストールします。
 
 ```bash
 source ~/ros2_ws/.venv/bin/activate
@@ -39,7 +39,7 @@ pip install mediapipe opencv-python
 ```
 
 ### 3. パッケージのビルド
-ビルドおよび実行時に仮想環境のパッケージを参照できるように、`PYTHONPATH` を設定してからビルドを行います。
+仮想環境のパッケージを参照できるよう、`PYTHONPATH`を設定してビルドします。
 
 ```bash
 cd ~/ros2_ws
@@ -50,7 +50,7 @@ colcon build --packages-select hand_tracking_openx --symlink-install --cmake-arg
 ## 起動と操作手順
 
 ### 1. 環境の準備
-起動前に、必ずROS 2ワークスペースとPython仮想環境の両方を読み込んでください。
+ROS 2ワークスペースとPython仮想環境を有効化します。
 
 ```bash
 cd ~/ros2_ws
@@ -60,16 +60,16 @@ export PYTHONPATH=$(python -c 'import site; print(site.getsitepackages()[0])'):$
 ```
 
 ### 2. ノードの起動
-以下のLaunchファイルを実行すると、OpenMANIPULATOR-Xのコントローラ、RealSenseカメラのノード、およびハンドトラッキングノードがすべて自動で立ち上がります。
+以下のコマンドで必要なノードを一括起動します。
 
 ```bash
 ros2 launch hand_tracking_openx hand_tracking_openx.launch.py
 ```
 
 ### 3. 操作方法
-1. システムが起動すると、ロボットアームが自動的に初期位置に移動します。
-2. 「Hand Tracking」というウィンドウが開き、カメラの映像と中央に赤い十字マークが表示されます。
+1. 起動後、ロボットアームが自動的に初期位置へ移動します。
+2. 「Hand Tracking」ウィンドウが開き、カメラ映像と赤い十字マークが表示されます。
 3. カメラに手をかざします。
-4. **【追従開始】**: 手を「パー」の形にしてください。ロボットが赤い十字マークを手首の位置に合わせるように滑らかに動き出します。
-5. **【追従停止】**: 手のジェスチャーが「パー」以外だとロボットの追従が停止します。
-6. **【終了方法】**: ターミナル上で `Ctrl+C`を押してください。
+4. **追従開始**: 手を「パー」の形にすると、手首の位置への追従を開始します。
+5. **追従停止**: 手を「パー」以外の形にすると、追従が停止します。
+6. **終了**: ターミナルで `Ctrl+C` を入力します。
